@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { joinWaitlistSchema, idSchema } from '@/lib/validations'
 
 function generateReferralCode(email: string): string {
   const base = email.split('@')[0].replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 4)
@@ -10,14 +11,18 @@ function generateReferralCode(email: string): string {
 }
 
 export async function joinWaitlist(formData: FormData) {
-  const slug = formData.get('slug') as string
-  const email = formData.get('email') as string
-  const name = formData.get('name') as string | null
-  const referralCode = formData.get('ref') as string | null
+  const parsed = joinWaitlistSchema.safeParse({
+    slug: formData.get('slug'),
+    email: formData.get('email'),
+    name: formData.get('name'),
+    ref: formData.get('ref'),
+  })
 
-  if (!email || !slug) {
-    return { error: 'メールアドレスは必須です' }
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? 'バリデーションエラー' }
   }
+
+  const { slug, email, name, ref: referralCode } = parsed.data
 
   // Use admin client for public signups (no auth required)
   const supabase = await createAdminClient()
@@ -88,7 +93,7 @@ export async function joinWaitlist(formData: FormData) {
     .insert({
       waitlist_id: waitlist.id,
       email,
-      name: name || null,
+      name: name ?? null,
       referral_code: newReferralCode,
       referred_by: referrerId,
       position,
@@ -124,6 +129,9 @@ export async function getSubscribers(waitlistId: string, page = 1, pageSize = 50
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { data: [], count: 0 }
 
+  const idResult = idSchema.safeParse(waitlistId)
+  if (!idResult.success) return { data: [], count: 0 }
+
   const from = (page - 1) * pageSize
   const to = from + pageSize - 1
 
@@ -142,6 +150,10 @@ export async function deleteSubscriber(waitlistId: string, subscriberId: string)
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: '認証が必要です' }
+
+  const wlResult = idSchema.safeParse(waitlistId)
+  const subResult = idSchema.safeParse(subscriberId)
+  if (!wlResult.success || !subResult.success) return { error: '無効なIDです' }
 
   const { error } = await supabase
     .from('subscribers')

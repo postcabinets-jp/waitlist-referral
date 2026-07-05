@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import type { Waitlist } from '@/types/database'
+import { createWaitlistSchema, updateWaitlistSchema, idSchema } from '@/lib/validations'
 
 function generateSlug(name: string): string {
   return name
@@ -18,9 +19,17 @@ export async function createWaitlist(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const name = formData.get('name') as string
-  const description = formData.get('description') as string | null
-  const template = (formData.get('template') ?? 'minimal') as Waitlist['template']
+  const parsed = createWaitlistSchema.safeParse({
+    name: formData.get('name'),
+    description: formData.get('description'),
+    template: formData.get('template') ?? 'minimal',
+  })
+
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? 'バリデーションエラー')
+  }
+
+  const { name, description, template } = parsed.data
 
   const baseSlug = generateSlug(name)
   let slug = baseSlug
@@ -45,7 +54,7 @@ export async function createWaitlist(formData: FormData) {
       user_id: user.id,
       name,
       slug,
-      description: description || null,
+      description: description ?? null,
       template,
     })
     .select()
@@ -62,16 +71,27 @@ export async function updateWaitlist(waitlistId: string, formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const idResult = idSchema.safeParse(waitlistId)
+  if (!idResult.success) throw new Error('無効なIDです')
+
+  const parsed = updateWaitlistSchema.safeParse({
+    name: formData.get('name') || undefined,
+    description: formData.get('description'),
+    template: formData.get('template') || undefined,
+    settings: formData.get('settings') ? JSON.parse(formData.get('settings') as string) : undefined,
+  })
+
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? 'バリデーションエラー')
+  }
+
   const updates: Partial<Waitlist> = {}
-  const name = formData.get('name') as string | null
-  const description = formData.get('description') as string | null
-  const template = formData.get('template') as Waitlist['template'] | null
-  const settingsRaw = formData.get('settings') as string | null
+  const { name, description, template, settings } = parsed.data
 
   if (name) updates.name = name
-  if (description !== null) updates.description = description || null
+  if (description !== undefined) updates.description = description ?? null
   if (template) updates.template = template
-  if (settingsRaw) updates.settings = JSON.parse(settingsRaw)
+  if (settings) updates.settings = settings as Waitlist['settings']
 
   const { error } = await supabase
     .from('waitlists')
@@ -89,6 +109,9 @@ export async function deleteWaitlist(waitlistId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  const idResult = idSchema.safeParse(waitlistId)
+  if (!idResult.success) throw new Error('無効なIDです')
 
   const { error } = await supabase
     .from('waitlists')
@@ -121,6 +144,9 @@ export async function getWaitlist(waitlistId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  const idResult = idSchema.safeParse(waitlistId)
+  if (!idResult.success) return null
 
   const { data, error } = await supabase
     .from('waitlists')
