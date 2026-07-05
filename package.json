@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "node -e \"const fs=require('fs'),path='.next/dev/lock';try{const l=JSON.parse(fs.readFileSync(path,'utf8'));try{process.kill(l.pid,0)}catch{fs.unlinkSync(path)}}catch{}\"",
+    "predev": "node -e \"const fs=require('fs'),path='.next/dev/lock';try{const l=JSON.parse(fs.readFileSync(path,'utf8'));try{process.kill(l.pid,'SIGTERM')}catch{}fs.unlinkSync(path)}catch{}\"",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
